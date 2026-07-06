@@ -1027,7 +1027,7 @@ const S={
   isDark:true,lang:"en",sidebarOpen:false,
   toast:null,toastTimer:null,modal:null,
   gSearch:"",gCat:"All",gSort:"newest",form:null,
-  aiMode:"feedback",aiSel:"",aiCustom:"",aiAdCredits:0,dailyFreeUsed:0,dailyFreeDate:null,unlockedLessons:[],
+  aiMode:"feedback",aiSel:"",aiCustom:"",aiAdCredits:0,dailyAdUsed:0,dailyFreeUsed:0,dailyFreeDate:null,unlockedLessons:[],
   insCat:"fantasy",insCur:0,insSaved:[],
   cmpMode:false,cmpSel1:"",cmpSel2:"",
   profileEdit:false,profileForm:null,
@@ -1797,12 +1797,23 @@ function showRewardedAdModal(onComplete, subText){
 // 3. The ad will auto-load when users visit the AI Coach page
 // ============================================================
 function watchAdForAICredit(){
-  showRewardedAdModal(() => {
-    S.aiAdCredits = (S.aiAdCredits||0) + 4;
-    if(S.user?.uid){saveUserProfile(S.user.uid,{aiAdCredits:S.aiAdCredits}).catch(notifyCloudSyncError);}
+  ensureDailyReset();
+  const adsToday = S.dailyAdUsed || 0;
+  if(adsToday >= DAILY_AD_LIMIT){
     S.showToast(
-      '🎁 '+(_lang==='ar'?'تم فتح 4 طلبات AI مجانية!':_lang==='tr'?'4 ücretsiz AI isteği açıldı!':'4 free AI requests unlocked!'),
-      _lang==='ar'?'لديك الآن 4 أسئلة مجانية':_lang==='tr'?'Şimdi 4 ücretsiz soru hakkın var':'You now have 4 free questions'
+      '⏰ ' + (_lang==='ar'?'وصلت للحد اليومي من الإعلانات':_lang==='tr'?'Günlük reklam limitine ulaştın':'Daily ad limit reached'),
+      _lang==='ar'?'عُد بكرة لمزيد من الأسئلة المجانية':_lang==='tr'?'Yarın daha fazla ücretsiz soru için gel':'Come back tomorrow for more free questions'
+    );
+    return;
+  }
+  showRewardedAdModal(() => {
+    S.dailyAdUsed = adsToday + 1;
+    S.aiAdCredits = (S.aiAdCredits||0) + AD_BONUS;
+    if(S.user?.uid){saveUserProfile(S.user.uid,{aiAdCredits:S.aiAdCredits,dailyAdUsed:S.dailyAdUsed}).catch(notifyCloudSyncError);}
+    const remaining = DAILY_AD_LIMIT - S.dailyAdUsed;
+    S.showToast(
+      '🎁 ' + (_lang==='ar'?'تم فتح 4 طلبات AI مجانية!':_lang==='tr'?'4 ücretsiz AI isteği açıldı!':'4 free AI requests unlocked!'),
+      _lang==='ar'?لديك ${S.aiAdCredits} أسئلة — متبقي ${remaining} إعلان اليوم:_lang==='tr'?Şimdi ${S.aiAdCredits} sorun var — bugün ${remaining} reklam kaldı:You now have ${S.aiAdCredits} questions — ${remaining} ads left today
     );
     S.emit();
   });
@@ -2513,7 +2524,29 @@ function showUploadLoading(container){
 // or enter any API key at all. Falls back to the user's own personal key
 // (callGemini below) only if they explicitly added one in settings.
 const AI_WORKER_URL = 'https://sketch-journey-ai1.sketch-journey-ai.workers.dev';
+  // === AI Rate Limiter ===
+window._aiLastReq = window._aiLastReq || 0;
+window._aiInflight = window._aiInflight || 0;
+window._aiCache = window._aiCache || new Map();
 async function callGeminiViaWorker(prompt, imageDataUrl){
+  const now = Date.now();
+if(now - window._aiLastReq < 4000){
+  throw new Error(_lang==='ar'?'⏳ انتظر 4 ثواني قبل السؤال التالي':'Wait 4 seconds');
+}
+if(window._aiInflight >= 2){
+  throw new Error(_lang==='ar'?'المعالج مشغول، انتظر لحظة':'Server busy');
+}
+const cached = window._aiCache.get(prompt);
+if(cached && now - cached.ts < 60000){
+  window._aiInflight++;
+  return cached.text;
+}
+window._aiLastReq = now;
+window._aiInflight++;
+  // Limit prompt size to ~6000 chars to stay safely under token limits
+if(prompt.length > 6000){
+  prompt = prompt.substring(0, 6000) + '\n\n[Note: user prompt was truncated for length]';
+}
   const body = { prompt };
   // Send the actual artwork image so Gemini can genuinely look at it,
   // instead of only ever seeing the title/category/time text metadata.
@@ -2543,13 +2576,18 @@ async function callGeminiViaWorker(prompt, imageDataUrl){
     }
     throw new Error('Empty response from AI (no specific reason given)');
   }
-  return data.text;
+  window._aiCache.set(prompt, { text: data.text, ts: Date.now() });
+window._aiInflight = Math.max(0, window._aiInflight - 1);
+return data.text;
+
 }
 // Daily free quota for the shared Worker: since everyone without a
 // personal key uses the SAME backend Gemini key, one heavy user could
 // exhaust the whole app's shared free-tier quota for the day. A small
 // per-user daily allowance (resets at local midnight) keeps usage fair.
 const DAILY_FREE_LIMIT = 3;
+  const DAILY_AD_LIMIT = 2;
+const AD_BONUS = 4;
 function ensureDailyReset(){
   const today = new Date().toDateString();
   if(S.dailyFreeDate !== today){
@@ -2867,7 +2905,7 @@ async function handleAuthChange(fbUser){
     unsubscribeEntries();
     S.user=null;
     S.entries=[];
-    S.aiAdCredits=0;
+    S.S.aiAdCredits=0;S.dailyAdUsed=0;=0;
     S.dailyFreeUsed=0;S.dailyFreeDate=null;
     S.unlockedLessons=[];
     S.go("auth");
