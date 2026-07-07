@@ -2586,7 +2586,7 @@ return data.text;
 // exhaust the whole app's shared free-tier quota for the day. A small
 // per-user daily allowance (resets at local midnight) keeps usage fair.
 const DAILY_FREE_LIMIT = 3;
-  const DAILY_AD_LIMIT = 2;
+const DAILY_AD_LIMIT = 2;
 const AD_BONUS = 4;
 function ensureDailyReset(){
   const today = new Date().toDateString();
@@ -2905,7 +2905,7 @@ async function handleAuthChange(fbUser){
     unsubscribeEntries();
     S.user=null;
     S.entries=[];
-    S.S.aiAdCredits=0;S.dailyAdUsed=0;=0;
+    S.aiAdCredits=0;S.dailyAdUsed=0;
     S.dailyFreeUsed=0;S.dailyFreeDate=null;
     S.unlockedLessons=[];
     S.go("auth");
